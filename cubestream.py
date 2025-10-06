@@ -17,24 +17,31 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("CubeStream")
 clock = pygame.time.Clock()
 
-# Generate chiptune melody
-def generate_chiptune():
+# Generate chiptune melody with transpose
+def generate_chiptune(transpose=0):
     sample_rate = 22050
-    duration = 4
-    notes = [262, 330, 392, 523, 349, 440, 392, 330]  # C, E, G, C5, F, A, G, E
+    duration = 8  # Slower tempo - doubled duration
+    # Mystical minor melody - lower register, flowing intervals
+    notes = [220, 247, 262, 294, 330, 294, 262, 247]  # A, B, C, D, E, D, C, B
     note_duration = duration / len(notes)
+
+    # Apply transpose (semitones)
+    transpose_factor = 2 ** (transpose / 12.0)
+    transposed_notes = [note * transpose_factor for note in notes]
 
     samples = np.array([], dtype=np.int16)
 
-    for note in notes:
+    for note in transposed_notes:
         t = np.linspace(0, note_duration, int(sample_rate * note_duration), False)
-        # Square wave for chiptune sound
-        wave = np.sign(np.sin(note * 2 * np.pi * t))
-        wave += 0.5 * np.sign(np.sin(note * 4 * np.pi * t))
+        # Softer sine wave base for mystical sound
+        wave = np.sin(note * 2 * np.pi * t)
+        # Add subtle harmonics
+        wave += 0.3 * np.sin(note * 3 * np.pi * t)
+        wave += 0.2 * np.sin(note * 5 * np.pi * t)
 
-        # Envelope
-        envelope = np.exp(-3 * t / note_duration)
-        wave = wave * envelope * 0.3
+        # Gentler envelope for sustained mystical tone
+        envelope = np.exp(-1.5 * t / note_duration)
+        wave = wave * envelope * 0.25
 
         # Convert to int16
         wave = np.int16(wave * 32767 / (np.max(np.abs(wave)) + 0.001))
@@ -45,9 +52,10 @@ def generate_chiptune():
     return pygame.sndarray.make_sound(stereo)
 
 # Start music
+music_channel = None
 try:
     chiptune = generate_chiptune()
-    chiptune.play(-1)
+    music_channel = chiptune.play(3)  # Play 4 times total (1 + 3 loops)
 except Exception as e:
     print(f"Music disabled: {e}")
 
@@ -72,34 +80,47 @@ class Particle:
     def reset(self):
         angle = random.uniform(0, 2 * math.pi)
         elevation = random.uniform(-math.pi/2, math.pi/2)
-        distance = random.uniform(150, 250)
+        # Keep particles near cube, away from camera
+        distance = random.uniform(100, 180)
 
         self.x = math.cos(angle) * math.cos(elevation) * distance + WIDTH / 2
         self.y = math.sin(elevation) * distance + HEIGHT / 2
         self.z = math.sin(angle) * math.cos(elevation) * distance
 
-        self.vx = random.uniform(-0.5, 0.5)
-        self.vy = random.uniform(-0.5, 0.5)
-        self.vz = random.uniform(-0.5, 0.5)
+        self.vx = random.uniform(-0.3, 0.3)
+        self.vy = random.uniform(-0.3, 0.3)
+        self.vz = random.uniform(-0.3, 0.3)
 
-        colors = [(100, 150, 255), (150, 100, 255), (100, 255, 255), (200, 200, 255)]
+        # Subtle complementary colors - muted blues, purples, teals
+        colors = [
+            (60, 80, 120),   # Muted blue
+            (70, 60, 110),   # Muted purple
+            (50, 90, 100),   # Muted teal
+            (65, 75, 115)    # Muted blue-purple
+        ]
         self.color = random.choice(colors)
-        self.size = random.randint(1, 3)
-        self.life = random.randint(180, 300)
+        self.size = random.randint(1, 2)
+        self.life = random.randint(240, 360)  # Longer life for smoother fades
         self.max_life = self.life
+        self.color_shift = random.uniform(0, 2 * math.pi)  # For subtle color animation
 
     def update(self):
         self.x += self.vx
         self.y += self.vy
         self.z += self.vz
         self.life -= 1
+        self.color_shift += 0.02  # Slow color shift
         if self.life <= 0:
             self.reset()
 
     def draw(self, screen):
-        # Fade color based on life (darken instead of alpha)
-        fade = self.life / self.max_life
-        color = tuple(int(c * fade) for c in self.color)
+        # Smooth fade with easing
+        fade = (self.life / self.max_life) ** 0.5  # Square root for smoother fade
+
+        # Subtle color shift
+        shift = math.sin(self.color_shift) * 0.15  # Small shift amount
+        color = tuple(int(c * fade * (1 + shift * 0.5)) for c in self.color)
+        color = tuple(max(0, min(255, c)) for c in color)  # Clamp
 
         # Simple depth-based sizing
         scale = 200 / (200 + self.z)
@@ -108,8 +129,8 @@ class Particle:
         # Draw directly without alpha surface
         pygame.draw.circle(screen, color, (int(self.x), int(self.y)), size)
 
-# Create particles
-particles = [Particle() for _ in range(100)]
+# Create particles - fewer for less flicker
+particles = [Particle() for _ in range(70)]
 
 # Rotation angles
 angle_x = 0
@@ -149,6 +170,15 @@ while running:
             running = False
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             running = False
+
+    # Check if music needs to restart with new transpose
+    if music_channel and not music_channel.get_busy():
+        try:
+            transpose = random.randint(-7, 7)  # Random transpose within ±7 semitones
+            chiptune = generate_chiptune(transpose)
+            music_channel = chiptune.play(3)  # Play 4 times before switching again
+        except Exception as e:
+            pass
 
     # Clear screen
     screen.fill(DEEP_BLUE)
